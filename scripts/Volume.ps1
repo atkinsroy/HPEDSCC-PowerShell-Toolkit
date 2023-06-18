@@ -1,5 +1,3 @@
-function Get-DSCCVolume
-{
 <#
 .SYNOPSIS
     Returns the HPE DSSC DOM Storage Systems Pools for a specific storage system and pool    
@@ -154,40 +152,94 @@ function Get-DSCCVolume
     The Body of this call will be:
         "No Body"
 .LINK
-#>   
-[CmdletBinding()]
-param(  [Parameter(ValueFromPipeLineByPropertyName=$true )][Alias('id')]    [string]    $SystemId, 
-                                                                            [string]    $VolumeId,
-                                                                            [boolean]   $WhatIf = $false
-     )
-process
-    {   
-        if ( -not $PSBoundParameters.ContainsKey('SystemId' ) )
-            {   write-warning "No SystemID Given, running all SystemIDs"
-                $ReturnCol=@()
-                foreach( $Sys in Get-DSCCStorageSystem )
-                    {   write-verbose "Walking Through Multiple Systems"
-                        If ( ($Sys).Id )
-                            {   write-verbose "Found a system with a System.id"
-                                $ReturnCol += Get-DSCCVolume -SystemId ($Sys).Id -WhatIf $WhatIf
-                            }
-                    }
-                write-verbose "Returning the Multiple System Id Access Controll Groups."
-                return $ReturnCol
+#>  
+function Get-DSCCVolume { 
+    [CmdletBinding(SupportsShouldProcess, DefaultParameterSetName = 'BySystemId')]
+    param (
+        # These Paremeter Sets allow optional specification of either SystemId or SystemName along with 
+        # optionally either VolumeId or VolumeName. VolumeId by itself works (as its part of default Parameter Set)
+        # However, VolumeName by itself fails - not enough information to work out Parameter Set, so SystemId or 
+        # SystemName must be specified.
+        [Parameter(ValueFromPipeLineByPropertyName, ParameterSetName = 'BySystemId')]
+        [Parameter(ValueFromPipeLineByPropertyName, ParameterSetName = 'BySystemIdAndVolumeName')]
+        [alias('id')]
+        [string[]]$SystemId = (($DsccStorageSystem).Id),
+
+        [Parameter(ParameterSetName = 'BySystemName')]
+        [Parameter(ParameterSetName = 'BySystemNameAndVolumeId')]
+        [alias('name')]
+        [string[]]$SystemName,
+
+        [Parameter(ParameterSetName = 'BySystemId')]
+        [Parameter(ParameterSetName = 'BySystemNameAndVolumeId')]
+        [string[]]$VolumeId,
+
+        [Parameter(ParameterSetName = 'BySystemName')]
+        [Parameter(ParameterSetName = 'BySystemIdAndVolumeName')]
+        [string[]]$VolumeName,
+
+        [switch]$Vlun
+    )
+
+    begin {
+        Write-Verbose 'Executing Get-DsccVolume'
+        if ($PSBoundParameters.ContainsKey('SystemName')) {
+            $SystemId = Resolve-DsccSystemId -SystemName $SystemName
+        }
+    }
+
+    process {
+        foreach ($ThisId in $SystemId) {
+            $UriAdd = "storage-systems/$ThisId/volumes"
+            $Response = invoke-DSCCrestmethod -UriAdd $UriAdd -Method Get -WhatIf:$WhatIfPreference
+            if ($PSBoundParameters.ContainsKey('VolumeId')) {
+                $Response = $Response | Where-Object id -In $VolumeId
             }
-        else 
-            {   write-verbose "passed systemID = $SystemId"
-                if ( (Find-DSCCDeviceTypeFromStorageSystemID -SystemId $SystemId) )
-                        {   $MyAdd = 'storage-systems/' + $SystemId + '/volumes' 
-                            $SysColOnly = invoke-DSCCrestmethod -UriAdd $MyAdd -method Get -whatifBoolean $WhatIf
-                            return ( Invoke-RepackageObjectWithType -RawObject $SysColOnly -ObjectName "Volume.Combined" )
-                        }
-            }       
-} 
-}
-function Remove-DSCCVolume
-{
-<#
+            elseif ($PSBoundParameters.ContainsKey('VolumeName')) {
+                $Response = $Response | Where-Object name -In $VolumeName
+            }
+            if ($PSBoundParameters.ContainsKey('Vlun')) {
+                Get-DsccLun -SystemId $ThisId -Volume $Response
+            }
+            else {
+                Invoke-RepackageObjectWithType -RawObject $Response -ObjectName 'Volume.Combined'
+            }
+        } # end foreach
+    } #end process
+} # end Get-DsccVolume
+
+# Helper function for Get-DsccVolume to display vlun information for device-type1 systems
+function Get-DsccLun {
+    [CmdletBinding()]
+    Param (
+        [Parameter(Mandatory)]
+        [string[]]$SystemId,
+
+        [Parameter(Mandatory)]
+        [PSObject[]]$Volume
+    )
+
+    begin {
+        $DeviceType = $DsccStorageSystem.DeviceType
+        if ($DeviceType -ne 'device-type1') {
+            Write-Error "$SystemId (Model: $($SystemId.Model)) does not support -LUN option"
+        }
+    }
+
+    process {
+        foreach ($ThisId in $SystemId) {
+            foreach ($ThisVolumeId in $Volume.Id) {
+                $UriAdd = "storage-systems/$DeviceType/$SystemId/volumes/$ThisVolumeId/vluns"
+                $Response = invoke-DSCCrestmethod -UriAdd $UriAdd -Method Get -WhatIf:$WhatIfPreference
+                Invoke-RepackageObjectWithType -RawObject $Response -ObjectName 'Volume.Vlun'
+            }
+        }
+    }
+} #end Get-DsccLun
+
+
+function Remove-DSCCVolume {
+    <#
 .SYNOPSIS
     Removes a Volume from a DSCC Storage System.     
 .DESCRIPTION
@@ -219,48 +271,50 @@ function Remove-DSCCVolume
 .EXAMPLE
     PS:> Remove-Volume -SystemId MX1234ABDE -Volumeid 234Volref -Cascade -unExport
 #>   
-[CmdletBinding()]
-param(  [Parameter(mandatory=$true, ValueFromPipeLineByPropertyName=$true )][Alias('id')]   [string]    $SystemId, 
-        [Parameter(mandatory=$true )]                                                       [string]    $VolumeId,
-                                                                                            [switch]    $Cascade,
-                                                                                            [switch]    $unExport,
-                                                                                            [switch]    $force,
-                                                                                            [switch]    $WhatIf
-     )
-process
-    {   $DeviceType = ( Find-DSCCDeviceTypeFromStorageSystemID -SystemId $SystemId )
+    [CmdletBinding()]
+    param(  [Parameter(mandatory = $true, ValueFromPipeLineByPropertyName = $true )][Alias('id')]   [string]    $SystemId, 
+        [Parameter(mandatory = $true )]                                                       [string]    $VolumeId,
+        [switch]    $Cascade,
+        [switch]    $unExport,
+        [switch]    $force,
+        [switch]    $WhatIf
+    )
+    process {
+        $DeviceType = ( Find-DSCCDeviceTypeFromStorageSystemID -SystemId $SystemId )
         $MyAdd = 'storage-systems/' + $DeviceType + '/' + $SystemId + '/volumes/' + $VolumeId
-        switch ( $DeviceType )
-        {   'device-type1'  {   if ( $Cascade ) 
-                                        {  $MyAdd = $MyAdd + '?cascade=true' 
-                                        }
-                                if ( $UnExport )
-                                        {   if ( $Cascade ) 
-                                                    {   $MyAdd = $MyAdd + '&'
-                                                    }
-                                                else 
-                                                    {   $MyAdd = $MyAdd + '?'
-                                                    }
-                                            $MyAdd = $MyAdd + 'cascade=true'
-                                        }
-                            }
-            'device-type2'  {   if ( $force )
-                                    { $MyAdd = $MyAdd + '?force=true'
-                                    }
+        switch ( $DeviceType ) {
+            'device-type1' {
+                if ( $Cascade ) {
+                    $MyAdd = $MyAdd + '?cascade=true' 
+                }
+                if ( $UnExport ) {
+                    if ( $Cascade ) {
+                        $MyAdd = $MyAdd + '&'
+                    }
+                    else {
+                        $MyAdd = $MyAdd + '?'
+                    }
+                    $MyAdd = $MyAdd + 'cascade=true'
+                }
+            }
+            'device-type2' {
+                if ( $force ) {
+                    $MyAdd = $MyAdd + '?force=true'
+                }
 
-                            }
-            default         {   write-warning 'The SystemID did not return a valid system.'
-                                return
-                            }
+            }
+            default {
+                Write-Warning 'The SystemID did not return a valid system.'
+                return
+            }
 
         } 
         return invoke-DSCCrestmethod -UriAdd $MyAdd -method Delete -whatifBoolean $WhatIf
     }       
 } 
 
-function New-DSCCVolume
-{
-<#
+function New-DSCCVolume {
+    <#
 .SYNOPSIS
     Creates a new Volume on the specified Storage System.    
 .DESCRIPTION
@@ -408,118 +462,119 @@ Creating a Device-Type1 type Volume on a Alletra6K or Nimble Storage device.
 
 PS:>
 #>   
-[CmdletBinding()]
-param(  [Parameter(Mandatory=$true, ParameterSetName='Type1' )]
-        [Parameter(Mandatory=$true, ParameterSetName='Type2' )]       [string]    $SystemId, 
+    [CmdletBinding()]
+    param(  [Parameter(Mandatory = $true, ParameterSetName = 'Type1' )]
+        [Parameter(Mandatory = $true, ParameterSetName = 'Type2' )]       [string]    $SystemId, 
         
-        [Parameter(ParameterSetName='Type1' )]                        [switch]    $DeviceType1,
-        [Parameter(ParameterSetName='Type2' )]                        [switch]    $DeviceType2, 
+        [Parameter(ParameterSetName = 'Type1' )]                        [switch]    $DeviceType1,
+        [Parameter(ParameterSetName = 'Type2' )]                        [switch]    $DeviceType2, 
         
-        [Parameter(Mandatory=$true, ParameterSetName='Type1' )]
-        [Parameter(Mandatory=$true, ParameterSetName='Type2' )]       [string]    $name,
+        [Parameter(Mandatory = $true, ParameterSetName = 'Type1' )]
+        [Parameter(Mandatory = $true, ParameterSetName = 'Type2' )]       [string]    $name,
  
-        [Parameter(Mandatory=$true, ParameterSetName='Type1' )]       [string]    $sizeMib,
-        [Parameter(Mandatory=$true, ParameterSetName='Type1' )]       [string]    $userCpg,
-        [Parameter(ParameterSetName='Type1' )]                        [string]    $comments,
-        [Parameter(ParameterSetName='Type1' )]                        [int]       $count,
-        [Parameter(ParameterSetName='Type1' )]                        [boolean]   $dataReduction,
-        [Parameter(ParameterSetName='Type1' )]                        [string]    $snapCpg,
-        [Parameter(ParameterSetName='Type1' )]                        [string]    $snapshotAllocWarning,
-        [Parameter(ParameterSetName='Type1' )]                        [string]    $userAllocWarning,
+        [Parameter(Mandatory = $true, ParameterSetName = 'Type1' )]       [string]    $sizeMib,
+        [Parameter(Mandatory = $true, ParameterSetName = 'Type1' )]       [string]    $userCpg,
+        [Parameter(ParameterSetName = 'Type1' )]                        [string]    $comments,
+        [Parameter(ParameterSetName = 'Type1' )]                        [int]       $count,
+        [Parameter(ParameterSetName = 'Type1' )]                        [boolean]   $dataReduction,
+        [Parameter(ParameterSetName = 'Type1' )]                        [string]    $snapCpg,
+        [Parameter(ParameterSetName = 'Type1' )]                        [string]    $snapshotAllocWarning,
+        [Parameter(ParameterSetName = 'Type1' )]                        [string]    $userAllocWarning,
 
-        [Parameter(Mandatory=$true, ParameterSetName='Type2' )]       [string]    $size,
-        [Parameter(ParameterSetName='Type2' )]                        [string]    $pool_id,
-        [Parameter(ParameterSetName='Type2' )]
-            [ValidateSet('none','smis','vvol','openstack','openstackv2')]   [string]    $agent_type,
-        [Parameter(ParameterSetName='Type2' )]                        [string]    $app_uid,
-        [Parameter(ParameterSetName='Type2' )]                        [string]    $base_snap_id,
-        [Parameter(ParameterSetName='Type2' )]
-            [ValidateSet(4096,8192,16384,32768,65536)]                      [int]       $block_size,
-        [Parameter(ParameterSetName='Type2' )]                        [switch]    $cache_pinned,
-        [Parameter(ParameterSetName='Type2' )]                        [switch]    $clone,
-        [Parameter(ParameterSetName='Type2' )]                        [switch]    $dedupe_enabled,
-        [Parameter(ParameterSetName='Type2' )]                        [string]    $description,
-        [Parameter(ParameterSetName='Type2' )]                        [string]    $dest_pool_id,
-        [Parameter(ParameterSetName='Type2' )]
-            [ValidateSet('none','aes_256_xts')]                             [string]    $encryption_cipher,
-        [Parameter(ParameterSetName='Type2' )]                        [string]    $folder_id,
-        [Parameter(ParameterSetName='Type2' )]
-            [ValidateRange(0,100)]                                          [int]       $limit,
-        [Parameter(ParameterSetName='Type2' )]
-            [ValidateRange(256,4294967294)]                                 [int]       $limit_iops,
-        [Parameter(ParameterSetName='Type2' )]
-            [ValidateRange(256,4294967294)]                                 [int]       $limit_mbps,
-        [Parameter(ParameterSetName='Type2' )]                        [switch]    $multi_initiator,
-        [Parameter(ParameterSetName='Type2' )]                        [switch]    $online,
-        [Parameter(ParameterSetName='Type2' )]                        [string]    $owned_by_group_id,
-        [Parameter(ParameterSetName='Type2' )]                        [string]    $perfpolicy_id,
-        [Parameter(ParameterSetName='Type2' )]                        [switch]    $read_only,
-        [Parameter(ParameterSetName='Type2' )]
-            [ValidateRange(0,100)]                                          [int]       $reserve,
-        [Parameter(ParameterSetName='Type2' )]
-            [ValidateRange(0,100)]                                          [int]       $snap_reserve,
-        [Parameter(ParameterSetName='Type2' )]
-            [ValidateRange(0,100)]                                          [int]       $snap_warn_level,
-        [Parameter(ParameterSetName='Type2' )]
-            [ValidateRange(0,100)]                                          [int]       $warn_level,
+        [Parameter(Mandatory = $true, ParameterSetName = 'Type2' )]       [string]    $size,
+        [Parameter(ParameterSetName = 'Type2' )]                        [string]    $pool_id,
+        [Parameter(ParameterSetName = 'Type2' )]
+        [ValidateSet('none', 'smis', 'vvol', 'openstack', 'openstackv2')]   [string]    $agent_type,
+        [Parameter(ParameterSetName = 'Type2' )]                        [string]    $app_uid,
+        [Parameter(ParameterSetName = 'Type2' )]                        [string]    $base_snap_id,
+        [Parameter(ParameterSetName = 'Type2' )]
+        [ValidateSet(4096, 8192, 16384, 32768, 65536)]                      [int]       $block_size,
+        [Parameter(ParameterSetName = 'Type2' )]                        [switch]    $cache_pinned,
+        [Parameter(ParameterSetName = 'Type2' )]                        [switch]    $clone,
+        [Parameter(ParameterSetName = 'Type2' )]                        [switch]    $dedupe_enabled,
+        [Parameter(ParameterSetName = 'Type2' )]                        [string]    $description,
+        [Parameter(ParameterSetName = 'Type2' )]                        [string]    $dest_pool_id,
+        [Parameter(ParameterSetName = 'Type2' )]
+        [ValidateSet('none', 'aes_256_xts')]                             [string]    $encryption_cipher,
+        [Parameter(ParameterSetName = 'Type2' )]                        [string]    $folder_id,
+        [Parameter(ParameterSetName = 'Type2' )]
+        [ValidateRange(0, 100)]                                          [int]       $limit,
+        [Parameter(ParameterSetName = 'Type2' )]
+        [ValidateRange(256, 4294967294)]                                 [int]       $limit_iops,
+        [Parameter(ParameterSetName = 'Type2' )]
+        [ValidateRange(256, 4294967294)]                                 [int]       $limit_mbps,
+        [Parameter(ParameterSetName = 'Type2' )]                        [switch]    $multi_initiator,
+        [Parameter(ParameterSetName = 'Type2' )]                        [switch]    $online,
+        [Parameter(ParameterSetName = 'Type2' )]                        [string]    $owned_by_group_id,
+        [Parameter(ParameterSetName = 'Type2' )]                        [string]    $perfpolicy_id,
+        [Parameter(ParameterSetName = 'Type2' )]                        [switch]    $read_only,
+        [Parameter(ParameterSetName = 'Type2' )]
+        [ValidateRange(0, 100)]                                          [int]       $reserve,
+        [Parameter(ParameterSetName = 'Type2' )]
+        [ValidateRange(0, 100)]                                          [int]       $snap_reserve,
+        [Parameter(ParameterSetName = 'Type2' )]
+        [ValidateRange(0, 100)]                                          [int]       $snap_warn_level,
+        [Parameter(ParameterSetName = 'Type2' )]
+        [ValidateRange(0, 100)]                                          [int]       $warn_level,
 
-                                                                            [switch]    $WhatIf
+        [switch]    $WhatIf
     )
-process
-    {   $DeviceType = ( Find-DSCCDeviceTypeFromStorageSystemID -SystemId $SystemId )
+    process {
+        $DeviceType = ( Find-DSCCDeviceTypeFromStorageSystemID -SystemId $SystemId )
         $MyBody = [ordered]@{}
-        switch ( $DeviceType )
-          { 'device-type1'  {   if ( $comments   )          {   $MyBody = $MyBody + @{ 'comments'             = $comments }             }
-                                if ( $count     )           {   $MyBody = $MyBody + @{ 'count'                = $count }                }
-                                if ( $dataReduction)        {   $MyBody = $MyBody + @{ 'dataReduction'        = $True }                 }
-                                if ( $name )                {   $MyBody = $MyBody + @{ 'name'                 = $name }                 }
-                                if ( $sizeMib   )           {   $MyBody = $MyBody + @{ 'sizeMib'              = [int]$sizeMib }         }  
-                                if ( $snapCpg   )           {   $MyBody = $MyBody + @{ 'snapCpg'              = $snapCpg }              }
-                                if ( $userCpg   )           {   $MyBody = $MyBody + @{ 'userCpg'              = $userCpg }              }
-                                if ( $DeviceType2 ) 
-                                        {   write-error "The Wrong Device Type was specified"
-                                            Return
-                                        }
-                            }
-            'device-type2'   {  if ( $name )                {   $MyBody = $MyBody + @{ 'name'                 = $name }                 }
-                                if ( $size   )              {   $MyBody = $MyBody + @{ 'size'                 = [int]$size }            }
-                                if ( $pool_id   )           {   $MyBody = $MyBody + @{ 'pool_id'              = $pool_id }              }
-                                if ( $agent_type   )        {   $MyBody = $MyBody + @{ 'agent_type'           = $agent_type }           }
-                                if ( $app_uiid   )          {   $MyBody = $MyBody + @{ 'app_uiid'             = $app_uiid }             }
-                                if ( $base_snap_id   )      {   $MyBody = $MyBody + @{ 'base_snap_id'         = $base_snap_id }         }
-                                if ( $block_size   )        {   $MyBody = $MyBody + @{ 'block_size'           = $block_size }           }
-                                if ( $cache_pinned   )      {   $MyBody = $MyBody + @{ 'cache_pinned'         = $cache_pinned }         }
-                                if ( $clone   )             {   $MyBody = $MyBody + @{ 'clone'                = $clone }                }
-                                if ( $dedupe_enabled   )    {   $MyBody = $MyBody + @{ 'dedupe_enabled'       = $dedupe_enabled }       }
-                                if ( $description   )       {   $MyBody = $MyBody + @{ 'description'          = $description }          }
-                                if ( $dest_pool_id   )      {   $MyBody = $MyBody + @{ 'dest_pool_id'         = $dest_pool_id }         }
-                                if ( $encryption_cipher )   {   $MyBody = $MyBody + @{ 'encryption_cipher'    = $encryption_cipher }    }
-                                if ( $folder_id   )         {   $MyBody = $MyBody + @{ 'folder_id'            = $folder_id }            }
-                                if ( $limit   )             {   $MyBody = $MyBody + @{ 'limit'                = [int]$limit }           }
-                                if ( $limit_iops   )        {   $MyBody = $MyBody + @{ 'limit_iops'           = [int]$limit_iops }      }
-                                if ( $multi_initiator   )   {   $MyBody = $MyBody + @{ 'multi_initiator'      = $multi_initiator }      }
-                                if ( $online   )            {   $MyBody = $MyBody + @{ 'online'               = $online }               }
-                                if ( $owned_by_group_id   ) {   $MyBody = $MyBody + @{ 'owned_by_group_id'    = $owned_by_group_id }    }
-                                if ( $perfpolicy_id   )     {   $MyBody = $MyBody + @{ 'perfpolicy_id'        = $perfpolicy_id }        }
-                                if ( $read_only   )         {   $MyBody = $MyBody + @{ 'read_only'            = $read_only }            }
-                                if ( $reserve   )           {   $MyBody = $MyBody + @{ 'reserve'              = [int]$reserve }         }
-                                if ( $snap_reserve   )      {   $MyBody = $MyBody + @{ 'snap_reserve'         = [int]$snap_reserve }    }
-                                if ( $snap_warn_level   )   {   $MyBody = $MyBody + @{ 'snap_warn_level'      = [int]$snap_warn_level } }
-                                if ( $warn_level   )        {   $MyBody = $MyBody + @{ 'warn_level'           = [int]$warn_level }      }
-                                if ( $DeviceType1 ) 
-                                        {   write-error "The Wrong Device Type was specified"
-                                            Return
-                                        }
-                            }
-          }
+        switch ( $DeviceType ) {
+            'device-type1' {
+                if ( $comments   ) { $MyBody = $MyBody + @{ 'comments' = $comments } }
+                if ( $count     ) { $MyBody = $MyBody + @{ 'count' = $count } }
+                if ( $dataReduction) { $MyBody = $MyBody + @{ 'dataReduction' = $True } }
+                if ( $name ) { $MyBody = $MyBody + @{ 'name' = $name } }
+                if ( $sizeMib   ) { $MyBody = $MyBody + @{ 'sizeMib' = [int]$sizeMib } }  
+                if ( $snapCpg   ) { $MyBody = $MyBody + @{ 'snapCpg' = $snapCpg } }
+                if ( $userCpg   ) { $MyBody = $MyBody + @{ 'userCpg' = $userCpg } }
+                if ( $DeviceType2 ) {
+                    Write-Error 'The Wrong Device Type was specified'
+                    Return
+                }
+            }
+            'device-type2' {
+                if ( $name ) { $MyBody = $MyBody + @{ 'name' = $name } }
+                if ( $size   ) { $MyBody = $MyBody + @{ 'size' = [int]$size } }
+                if ( $pool_id   ) { $MyBody = $MyBody + @{ 'pool_id' = $pool_id } }
+                if ( $agent_type   ) { $MyBody = $MyBody + @{ 'agent_type' = $agent_type } }
+                if ( $app_uiid   ) { $MyBody = $MyBody + @{ 'app_uiid' = $app_uiid } }
+                if ( $base_snap_id   ) { $MyBody = $MyBody + @{ 'base_snap_id' = $base_snap_id } }
+                if ( $block_size   ) { $MyBody = $MyBody + @{ 'block_size' = $block_size } }
+                if ( $cache_pinned   ) { $MyBody = $MyBody + @{ 'cache_pinned' = $cache_pinned } }
+                if ( $clone   ) { $MyBody = $MyBody + @{ 'clone' = $clone } }
+                if ( $dedupe_enabled   ) { $MyBody = $MyBody + @{ 'dedupe_enabled' = $dedupe_enabled } }
+                if ( $description   ) { $MyBody = $MyBody + @{ 'description' = $description } }
+                if ( $dest_pool_id   ) { $MyBody = $MyBody + @{ 'dest_pool_id' = $dest_pool_id } }
+                if ( $encryption_cipher ) { $MyBody = $MyBody + @{ 'encryption_cipher' = $encryption_cipher } }
+                if ( $folder_id   ) { $MyBody = $MyBody + @{ 'folder_id' = $folder_id } }
+                if ( $limit   ) { $MyBody = $MyBody + @{ 'limit' = [int]$limit } }
+                if ( $limit_iops   ) { $MyBody = $MyBody + @{ 'limit_iops' = [int]$limit_iops } }
+                if ( $multi_initiator   ) { $MyBody = $MyBody + @{ 'multi_initiator' = $multi_initiator } }
+                if ( $online   ) { $MyBody = $MyBody + @{ 'online' = $online } }
+                if ( $owned_by_group_id   ) { $MyBody = $MyBody + @{ 'owned_by_group_id' = $owned_by_group_id } }
+                if ( $perfpolicy_id   ) { $MyBody = $MyBody + @{ 'perfpolicy_id' = $perfpolicy_id } }
+                if ( $read_only   ) { $MyBody = $MyBody + @{ 'read_only' = $read_only } }
+                if ( $reserve   ) { $MyBody = $MyBody + @{ 'reserve' = [int]$reserve } }
+                if ( $snap_reserve   ) { $MyBody = $MyBody + @{ 'snap_reserve' = [int]$snap_reserve } }
+                if ( $snap_warn_level   ) { $MyBody = $MyBody + @{ 'snap_warn_level' = [int]$snap_warn_level } }
+                if ( $warn_level   ) { $MyBody = $MyBody + @{ 'warn_level' = [int]$warn_level } }
+                if ( $DeviceType1 ) {
+                    Write-Error 'The Wrong Device Type was specified'
+                    Return
+                }
+            }
+        }
         $MyAdd = 'storage-systems/' + $DeviceType + '/' + $SystemId + '/volumes'
-        return ( invoke-DSCCrestmethod -uri $MyAdd -method 'POST' -body ($MyBody | convertto-json) -whatifBoolean $WhatIf ) 
+        return ( invoke-DSCCrestmethod -uri $MyAdd -method 'POST' -body ($MyBody | ConvertTo-Json) -whatifBoolean $WhatIf ) 
     }       
 } 
 
-function Set-DSCCVolume
-{
-<#
+function Set-DSCCVolume {
+    <#
 .SYNOPSIS
     Modifies a Volume on the specified Storage System.    
 .DESCRIPTION
@@ -592,76 +647,77 @@ function Set-DSCCVolume
     This option is very helpful when trying to understand the inner workings of the native RestAPI calls that DSCC uses.
 .EXAMPLE
 #>   
-[CmdletBinding()]
-param(  [Parameter(Mandatory=$true, ParameterSetName='DeviceType1' )]
-        [Parameter(Mandatory=$true, ParameterSetName='DeviceType2' )]       [string]    $SystemId, 
-        [Parameter(Mandatory=$true, ParameterSetName='DeviceType1' )]
-        [Parameter(Mandatory=$true, ParameterSetName='DeviceType2' )]       [string]    $id,
-        [Parameter(ParameterSetName='DeviceType1' )]
-            [ValidateSet('CONVERSIONTYPE_THIN','CONVERSIONTYPE_DDS')]       [string]    $conversionType,
-        [Parameter(ParameterSetName='DeviceType1' )]
-        [Parameter(ParameterSetName='DeviceType2' )]                        [string]    $name,
-        [Parameter(ParameterSetName='DeviceType1' )]                        [int]       $sizeMib,
-        [Parameter(ParameterSetName='DeviceType1' )]                        [int]       $snapshotAllocWarning,
-        [Parameter(ParameterSetName='DeviceType1' )]                        [int]       $userAllocWarning,
-        [Parameter(ParameterSetName='DeviceType1' )]                        [string]    $userCpgName,
+    [CmdletBinding()]
+    param(  [Parameter(Mandatory = $true, ParameterSetName = 'DeviceType1' )]
+        [Parameter(Mandatory = $true, ParameterSetName = 'DeviceType2' )]       [string]    $SystemId, 
+        [Parameter(Mandatory = $true, ParameterSetName = 'DeviceType1' )]
+        [Parameter(Mandatory = $true, ParameterSetName = 'DeviceType2' )]       [string]    $id,
+        [Parameter(ParameterSetName = 'DeviceType1' )]
+        [ValidateSet('CONVERSIONTYPE_THIN', 'CONVERSIONTYPE_DDS')]       [string]    $conversionType,
+        [Parameter(ParameterSetName = 'DeviceType1' )]
+        [Parameter(ParameterSetName = 'DeviceType2' )]                        [string]    $name,
+        [Parameter(ParameterSetName = 'DeviceType1' )]                        [int]       $sizeMib,
+        [Parameter(ParameterSetName = 'DeviceType1' )]                        [int]       $snapshotAllocWarning,
+        [Parameter(ParameterSetName = 'DeviceType1' )]                        [int]       $userAllocWarning,
+        [Parameter(ParameterSetName = 'DeviceType1' )]                        [string]    $userCpgName,
         
-        [Parameter(ParameterSetName='DeviceType2' )]                        [string]    $app_uid,
-        [Parameter(ParameterSetName='DeviceType2' )]                        [boolean]   $caching_enabled,
-        [Parameter(ParameterSetName='DeviceType2' )]                        [switch]    $dedupe_enabled,
-        [Parameter(ParameterSetName='DeviceType2' )]                        [string]    $description,
-        [Parameter(ParameterSetName='DeviceType2' )]                        [string]    $folder_id,
-        [Parameter(ParameterSetName='DeviceType2' )]                        [boolean]    $force,
-        [Parameter(ParameterSetName='DeviceType2' )]
-            [ValidateRange(0,100)]                                          [int]       $limit,
-        [Parameter(ParameterSetName='DeviceType2' )]
-            [ValidateRange(256,4294967294)]                                 [int]       $limit_iops,
-        [Parameter(ParameterSetName='DeviceType2' )]
-            [ValidateRange(256,4294967294)]                                 [int]       $limit_mbps,
-        [Parameter(ParameterSetName='DeviceType2' )]                        [switch]    $online,
-        [Parameter(ParameterSetName='DeviceType2' )]                        [string]    $perfpolicy_id,
-        [Parameter(ParameterSetName='DeviceType2' )]                        [int]       $size,
-        [Parameter(ParameterSetName='DeviceType1' )]                        [int]       $count,
-        [Parameter(ParameterSetName='DeviceType1' )]                        [boolean]   $dataReduction,       
-        [Parameter(ParameterSetName='DeviceType1' )]
-        [Parameter(ParameterSetName='DeviceType2' )]                        [switch]    $WhatIf
-     )
+        [Parameter(ParameterSetName = 'DeviceType2' )]                        [string]    $app_uid,
+        [Parameter(ParameterSetName = 'DeviceType2' )]                        [boolean]   $caching_enabled,
+        [Parameter(ParameterSetName = 'DeviceType2' )]                        [switch]    $dedupe_enabled,
+        [Parameter(ParameterSetName = 'DeviceType2' )]                        [string]    $description,
+        [Parameter(ParameterSetName = 'DeviceType2' )]                        [string]    $folder_id,
+        [Parameter(ParameterSetName = 'DeviceType2' )]                        [boolean]    $force,
+        [Parameter(ParameterSetName = 'DeviceType2' )]
+        [ValidateRange(0, 100)]                                          [int]       $limit,
+        [Parameter(ParameterSetName = 'DeviceType2' )]
+        [ValidateRange(256, 4294967294)]                                 [int]       $limit_iops,
+        [Parameter(ParameterSetName = 'DeviceType2' )]
+        [ValidateRange(256, 4294967294)]                                 [int]       $limit_mbps,
+        [Parameter(ParameterSetName = 'DeviceType2' )]                        [switch]    $online,
+        [Parameter(ParameterSetName = 'DeviceType2' )]                        [string]    $perfpolicy_id,
+        [Parameter(ParameterSetName = 'DeviceType2' )]                        [int]       $size,
+        [Parameter(ParameterSetName = 'DeviceType1' )]                        [int]       $count,
+        [Parameter(ParameterSetName = 'DeviceType1' )]                        [boolean]   $dataReduction,       
+        [Parameter(ParameterSetName = 'DeviceType1' )]
+        [Parameter(ParameterSetName = 'DeviceType2' )]                        [switch]    $WhatIf
+    )
 
-process
-    {   $DeviceType = ( Find-DSCCDeviceTypeFromStorageSystemID -SystemId $SystemId )
+    process {
+        $DeviceType = ( Find-DSCCDeviceTypeFromStorageSystemID -SystemId $SystemId )
         $MyAdd = 'storage-systems/' + $DeviceType + '/' + $SystemId + '/volumes/' + $id
         $MyBody = @{}
-        switch ( $DeviceType )
-          { 'device-type1'   {  if ( $conversionType   )    {   $MyBody = $MyBody + @{ 'conversionType'       = $conversionType }       }  
-                                if ( $name   )              {   $MyBody = $MyBody + @{ 'name'                 = $name }                 }  
-                                if ( $sizeMib   )           {   $MyBody = $MyBody + @{ 'sizeMib'              = [int]$sizeMib }         }  
-                                if ( $userCpgName   )       {   $MyBody = $MyBody + @{ 'userCpgName'          = $userCpgName }          }
-                                if ( $snapshotAllocWarning) {   $MyBody = $MyBody + @{ 'snapshotAllocWarning' = $snapshotAllocWarning } }
-                                if ( $userAllocWarning)     {   $MyBody = $MyBody + @{ 'userAllocWarning'     = $userAllocWarning }     }
-                            }
-            'device-type2'   {  if ( $app_uiid   )          {   $MyBody = $MyBody + @{ 'app_uiid'             = $app_uiid }             }
-                                if ( $caching_enabled )     {   $MyBody = $MyBody + @{ 'caching_enabled'      = $caching_enabled }      }
-                                if ( $dedupe_enabled   )    {   $MyBody = $MyBody + @{ 'dedupe_enabled'       = $dedupe_enabled }       }
-                                if ( $description   )       {   $MyBody = $MyBody + @{ 'description'          = $description }          }
-                                if ( $folder_id   )         {   $MyBody = $MyBody + @{ 'folder_id'            = $folder_id }            }
-                                if ( $force   )             {   $MyBody = $MyBody + @{ 'force'                = $true }                 }  
-                                if ( $limit   )             {   $MyBody = $MyBody + @{ 'limit'                = $limit }                }
-                                if ( $limit_iops   )        {   $MyBody = $MyBody + @{ 'limit_iops'           = $limit_iops }           }
-                                if ( $limit_mbps   )        {   $MyBody = $MyBody + @{ 'limit_mbps'           = $limit_mbps }           }
-                                if ( $name   )              {   $MyBody = $MyBody + @{ 'name'                 = $name }                 }  
-                                if ( $online   )            {   $MyBody = $MyBody + @{ 'online'               = $online }               }
-                                if ( $perfpolicy_id   )     {   $MyBody = $MyBody + @{ 'perfpolicy_id'        = $perfpolicy_id }        }
-                                if ( $size   )              {   $MyBody = $MyBody + @{ 'size'                 = $size }                 }
-                            }
-          }
+        switch ( $DeviceType ) {
+            'device-type1' {
+                if ( $conversionType   ) { $MyBody = $MyBody + @{ 'conversionType' = $conversionType } }  
+                if ( $name   ) { $MyBody = $MyBody + @{ 'name' = $name } }  
+                if ( $sizeMib   ) { $MyBody = $MyBody + @{ 'sizeMib' = [int]$sizeMib } }  
+                if ( $userCpgName   ) { $MyBody = $MyBody + @{ 'userCpgName' = $userCpgName } }
+                if ( $snapshotAllocWarning) { $MyBody = $MyBody + @{ 'snapshotAllocWarning' = $snapshotAllocWarning } }
+                if ( $userAllocWarning) { $MyBody = $MyBody + @{ 'userAllocWarning' = $userAllocWarning } }
+            }
+            'device-type2' {
+                if ( $app_uiid   ) { $MyBody = $MyBody + @{ 'app_uiid' = $app_uiid } }
+                if ( $caching_enabled ) { $MyBody = $MyBody + @{ 'caching_enabled' = $caching_enabled } }
+                if ( $dedupe_enabled   ) { $MyBody = $MyBody + @{ 'dedupe_enabled' = $dedupe_enabled } }
+                if ( $description   ) { $MyBody = $MyBody + @{ 'description' = $description } }
+                if ( $folder_id   ) { $MyBody = $MyBody + @{ 'folder_id' = $folder_id } }
+                if ( $force   ) { $MyBody = $MyBody + @{ 'force' = $true } }  
+                if ( $limit   ) { $MyBody = $MyBody + @{ 'limit' = $limit } }
+                if ( $limit_iops   ) { $MyBody = $MyBody + @{ 'limit_iops' = $limit_iops } }
+                if ( $limit_mbps   ) { $MyBody = $MyBody + @{ 'limit_mbps' = $limit_mbps } }
+                if ( $name   ) { $MyBody = $MyBody + @{ 'name' = $name } }  
+                if ( $online   ) { $MyBody = $MyBody + @{ 'online' = $online } }
+                if ( $perfpolicy_id   ) { $MyBody = $MyBody + @{ 'perfpolicy_id' = $perfpolicy_id } }
+                if ( $size   ) { $MyBody = $MyBody + @{ 'size' = $size } }
+            }
+        }
         return invoke-DSCCrestmethod -UriAdd $MyAdd -method PUT -body $MyBody -whatifBoolean $WhatIf 
 
     }       
 } 
 
-Function Get-DSCCVolumePerf
-{
-<#
+Function Get-DSCCVolumePerf {
+    <#
 .SYNOPSIS
     Retrieves the HPE DSSC DOM Storage Volume performance statistics for a specific storage system volume    
 .DESCRIPTION
@@ -678,25 +734,25 @@ Function Get-DSCCVolumePerf
     The WhatIf directive will show you the RAW RestAPI call that would be made to DSCC instead of actually sending the request.
     This option is very helpful when trying to understand the inner workings of the native RestAPI calls that DSCC uses.
 #>   
-[CmdletBinding()]
-param(  [Parameter(Mandatory=$true, ValueFromPipeLineByPropertyName=$true )][Alias('id')]   [string]    $SystemId, 
-        [Parameter(Mandatory=$true )]                                                       [string]    $VolumeId,
-        [Parameter(Mandatory=$true )][validateSet('statistics','history')]                  [String]    $PerformanceType,
-        [Parameter(Mandatory=$true )][validateSet('iops','latency','throughput')]           [String]    $Metric,
-                                                                                            [switch]    $WhatIf
-     )
-process
-    {       $DeviceType = ( Find-DSCCDeviceTypeFromStorageSystemID -SystemId $SystemId )
-            $MyAdd = 'storage-systems/' + $DeviceType + '/' + $SystemId + '/volumes/' + $VolumeId + '/performance-' + $PerformanceType 
-            $SysColOnly = invoke-DSCCrestmethod -UriAdd $MyAdd -method Get -whatifBoolean $WhatIf
-            switch ( $Metric )
-            {   'iops'          {   if ( ($SysColOnly).iops  )             { $ReturnData = ($SysColOnly).iops }             else { $ReturnData = ($SysColOnly).iops_metrics_data } }
-                'latency'       {   if ( ($SysColOnly).latencyMs )         { $ReturnData = ($SysColOnly).latencyMs }        else { $ReturnData = ($SysColOnly).latency_metrics_data } }
-                'throughtput'   {   if ( ($SysColOnly).throughtputKbps  )  { $ReturnData = ($SysColOnly).throughtputKbps }  else { $ReturnData = ($SysColOnly).throughout_metrics_data }}
-            }
-            if ( ($ReturnData).series_data )
-                    {   $ReturnData = ($ReturnData).series_data
-                    }
-            return ( Invoke-RepackageObjectWithType -RawObject $ReturnData -ObjectName "VolumePerf.Combined" )        
+    [CmdletBinding()]
+    param(  [Parameter(Mandatory = $true, ValueFromPipeLineByPropertyName = $true )][Alias('id')]   [string]    $SystemId, 
+        [Parameter(Mandatory = $true )]                                                       [string]    $VolumeId,
+        [Parameter(Mandatory = $true )][validateSet('statistics', 'history')]                  [String]    $PerformanceType,
+        [Parameter(Mandatory = $true )][validateSet('iops', 'latency', 'throughput')]           [String]    $Metric,
+        [switch]    $WhatIf
+    )
+    process {
+        $DeviceType = ( Find-DSCCDeviceTypeFromStorageSystemID -SystemId $SystemId )
+        $MyAdd = 'storage-systems/' + $DeviceType + '/' + $SystemId + '/volumes/' + $VolumeId + '/performance-' + $PerformanceType 
+        $SysColOnly = invoke-DSCCrestmethod -UriAdd $MyAdd -method Get -whatifBoolean $WhatIf
+        switch ( $Metric ) {
+            'iops' { if ( ($SysColOnly).iops  ) { $ReturnData = ($SysColOnly).iops }             else { $ReturnData = ($SysColOnly).iops_metrics_data } }
+            'latency' { if ( ($SysColOnly).latencyMs ) { $ReturnData = ($SysColOnly).latencyMs }        else { $ReturnData = ($SysColOnly).latency_metrics_data } }
+            'throughtput' { if ( ($SysColOnly).throughtputKbps  ) { $ReturnData = ($SysColOnly).throughtputKbps }  else { $ReturnData = ($SysColOnly).throughout_metrics_data } }
+        }
+        if ( ($ReturnData).series_data ) {
+            $ReturnData = ($ReturnData).series_data
+        }
+        return ( Invoke-RepackageObjectWithType -RawObject $ReturnData -ObjectName 'VolumePerf.Combined' )        
     }       
 }

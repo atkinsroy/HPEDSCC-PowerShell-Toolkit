@@ -1,6 +1,5 @@
-function Get-DSCCHost
-{
-<#
+function Get-DSCCHost {
+    <#
 .SYNOPSIS
     Returns the HPE DSSC DOM Hosts Collection    
 .DESCRIPTION
@@ -83,19 +82,18 @@ function Get-DSCCHost
 .LINK
     The API call for this operation is file:///api/v1/host-initiator-groups
 #>   
-[CmdletBinding()]
-param(  [string]    $HostID,
+    [CmdletBinding()]
+    param(  [string]    $HostID,
         [switch]    $WhatIf
     )
-process
-    {   $MyAdd = 'host-initiators'
+    process {
+        $MyAdd = 'host-initiators'
         $SysColOnly = Invoke-DSCCRestMethod -UriAdd $MyAdd -method Get -WhatIfBoolean $WhatIf
-        return ( Invoke-RepackageObjectWithType -RawObject $SysColOnly -ObjectName "Host" )
+        return ( Invoke-RepackageObjectWithType -RawObject $SysColOnly -ObjectName 'Host' )
     }       
 }   
-function Remove-DSCCHost
-{
-<#
+function Remove-DSCCHost {
+    <#
 .SYNOPSIS
     Removes a HPE DSSC DOM Host.    
 .DESCRIPTION
@@ -130,22 +128,21 @@ function Remove-DSCCHost
         "{\r\n    \"force\":  true\r\n}"
 .LINK
 #>   
-[CmdletBinding()]
-param(  [Parameter(Mandatory)]  [string]    $HostID,
-                                [switch]    $Force,
-                                [switch]    $WhatIf
+    [CmdletBinding()]
+    param(  [Parameter(Mandatory)]  [string]    $HostID,
+        [switch]    $Force,
+        [switch]    $WhatIf
     )
-process
-    {   $MyAdd = 'host-initiators/' + $HostID
-        if ($Force)
-            {   $MyBody = ( @{force=$true} | convertto-json )
-            }
+    process {
+        $MyAdd = 'host-initiators/' + $HostID
+        if ($Force) {
+            $MyBody = ( @{force = $true } | ConvertTo-Json )
+        }
         return ( Invoke-DSCCRestMethod -UriAdd $MyAdd -Method 'Delete' -body $MyBody -WhatIfBoolean $WhatIf )
     }       
 }   
-function Get-DSCCHostVolume
-{
-<#
+function Get-DSCCHostVolume {
+    <#
 .SYNOPSIS
     Returns the HPE DSSC DOM Volumes that a Host can see    
 .DESCRIPTION
@@ -196,18 +193,17 @@ function Get-DSCCHostVolume
     PS:> # The following example snippet returns ALL volumes for all hosts, since HostID is required
     PS:> ForEach($HostItem in Get-DSCCHostServicehost) { Get-DSCCHostServiceHostVolume -HostID ($HostItem).id }
 #>   
-[CmdletBinding()]
-param(  [string]    $HostID,
+    [CmdletBinding()]
+    param(  [string]    $HostID,
         [switch]    $WhatIf
     )
-process
-    {   $MyAdd = 'host-initiators/' + $HostID + '/volumes'
+    process {
+        $MyAdd = 'host-initiators/' + $HostID + '/volumes'
         return ( Invoke-DSCCRestMethod -UriAdd $MyAdd -Method Get -WhatIfBoolean $WhatIf )
     }       
 } 
-Function New-DSCCHost
-{
-<#
+Function New-DSCCHost {
+    <#
 .SYNOPSIS
     Creates a HPE DSSC DOM Host Record.    
 .DESCRIPTION
@@ -259,50 +255,49 @@ Function New-DSCCHost
         "taskUri": "/rest/vega/v1/tasks/4969a568-6fed-4915-bcd5-e4566a75e00c"
     }
 #>   
-[CmdletBinding()]
-param(                              [string]    $comment,
-                                    [string]    $contact,
-                                    [string]    $fqdn,
-                                    [array]     $hostGroupIds,
-                                    [array]     $initiatorIds,
-                                    [array]     $initiatorsToCreate,
-                                    [string]    $ipAddress,  
-                                    [string]    $location,
-                                    [string]    $model,
+    [CmdletBinding()]
+    param(                              [string]    $comment,
+        [string]    $contact,
+        [string]    $fqdn,
+        [array]     $hostGroupIds,
+        [array]     $initiatorIds,
+        [array]     $initiatorsToCreate,
+        [string]    $ipAddress,  
+        [string]    $location,
+        [string]    $model,
         [Parameter(Mandatory)]      [string]    $name,
-        [Parameter(Mandatory)][ValidateSet('AIX','Apple','Citrix Hypervisor(XenServer)','HP-UX','IBM VIO Server','InForm','NetApp/ONTAP','OE Linux UEK','Oracle VM x86','RHE Linux','RHE Virtualization','Solaris','SuSE Linux','Ubuntu','VMware (ESXi)','Windows Server')]
-                                    [string]    $operatingSystem,
-                                    [string]    $persona,
-                                    [string]    $protocol,
-                                    [string]    $subnet,
-                                    [boolean]   $userCreated=$true,
-                                    [switch]    $WhatIf
+        [Parameter(Mandatory)][ValidateSet('AIX', 'Apple', 'Citrix Hypervisor(XenServer)', 'HP-UX', 'IBM VIO Server', 'InForm', 'NetApp/ONTAP', 'OE Linux UEK', 'Oracle VM x86', 'RHE Linux', 'RHE Virtualization', 'Solaris', 'SuSE Linux', 'Ubuntu', 'VMware (ESXi)', 'Windows Server')]
+        [string]    $operatingSystem,
+        [string]    $persona,
+        [string]    $protocol,
+        [string]    $subnet,
+        [boolean]   $userCreated = $true,
+        [switch]    $WhatIf
     )
-process
-    {   $MyAdd = 'host-initiators'
-                                        $MyBody= [ordered]@{}
-        if ($comment)               {   $MyBody += @{ comment = $comment                        }  }
-        if ($contact)               {   $MyBody += @{ contact = $contact                        }  }
-        if ($fqdn)                  {   $MyBody += @{ fqdn = $fqdn                              }  }
-        if ($hostGroupIds)          {   $MyBody += @{ hostGroupIds = $hostGroupIds              }  }
-        if ($initiatorIds)          {   $MyBody += @{ initiatorIds = $initiatorIds              }  }
-                            else    {   $MyBody += @{ initiatorIds = $( $null )                 }  }
-        if ($initiatorsToCreate )   {   $MyBody += @{ initiatorsToCreate = $initiatorsToCreate  }  }
-        if ($ipAddress)             {   $MyBody += @{ ipAddress = $ipAddress                    }  }
-        if ($location)              {   $MyBody += @{ location = $location                      }  }
-        if ($model)                 {   $MyBody += @{ model = $model                            }  }
-                                        $MyBody += @{ name = $name                                 }
-                                        $MyBody += @{ operatingSystem = $operatingSystem           }
-        if ($persona)               {   $MyBody += @{ persona = $persona                        }  }
-        if ($protocol)              {   $MyBody += @{ protocol = $protocol                      }  }
-        if ($subnet)                {   $MyBody += @{ subnet = $subnet                          }  }
-                                        $MyBody += @{ userCreated = $userCreated                   }
-        return ( Invoke-DSCCRestMethod -uriadd $MyAdd -method 'POST' -body ( $MyBody | convertTo-json ) -WhatIfBoolean $WhatIf )
+    process {
+        $MyAdd = 'host-initiators'
+        $MyBody = [ordered]@{}
+        if ($comment) { $MyBody += @{ comment = $comment } }
+        if ($contact) { $MyBody += @{ contact = $contact } }
+        if ($fqdn) { $MyBody += @{ fqdn = $fqdn } }
+        if ($hostGroupIds) { $MyBody += @{ hostGroupIds = $hostGroupIds } }
+        if ($initiatorIds) { $MyBody += @{ initiatorIds = $initiatorIds } }
+        else { $MyBody += @{ initiatorIds = $( $null ) } }
+        if ($initiatorsToCreate ) { $MyBody += @{ initiatorsToCreate = $initiatorsToCreate } }
+        if ($ipAddress) { $MyBody += @{ ipAddress = $ipAddress } }
+        if ($location) { $MyBody += @{ location = $location } }
+        if ($model) { $MyBody += @{ model = $model } }
+        $MyBody += @{ name = $name }
+        $MyBody += @{ operatingSystem = $operatingSystem }
+        if ($persona) { $MyBody += @{ persona = $persona } }
+        if ($protocol) { $MyBody += @{ protocol = $protocol } }
+        if ($subnet) { $MyBody += @{ subnet = $subnet } }
+        $MyBody += @{ userCreated = $userCreated }
+        return ( Invoke-DSCCRestMethod -uriadd $MyAdd -method 'POST' -body ( $MyBody | ConvertTo-Json ) -WhatIfBoolean $WhatIf )
     }      
 } 
-Function Set-DSCCHost
-{
-<#
+Function Set-DSCCHost {
+    <#
 .SYNOPSIS
     Updates a HPE DSSC DOM Host Initiator Record.    
 .DESCRIPTION
@@ -326,19 +321,19 @@ Function Set-DSCCHost
         "taskUri": "/rest/vega/v1/tasks/4969a568-6fed-4915-bcd5-e4566a75e00c"
     }
 #>   
-[CmdletBinding()]
-param(  [Parameter(Mandatory)]  [string]    $hostID,
-                                [string]    $name,  
-                                [array]     $initiatorsToCreate,
-                                [array]     $updatedInitiators,
-                                [switch]    $WhatIf
+    [CmdletBinding()]
+    param(  [Parameter(Mandatory)]  [string]    $hostID,
+        [string]    $name,  
+        [array]     $initiatorsToCreate,
+        [array]     $updatedInitiators,
+        [switch]    $WhatIf
     )
-process
-    {   $MyAdd = 'host-initiator/' + $hostID
-                                        $MyBody += @{} 
-        if ($name)                  {   $MyBody += @{ name = $name                              }  }
-        if ($updatedInitiators)     {   $MyBody += @{ updatedInitiators  = $updatedInitiators   }  }
-        if ($initiatorsToCreate)    {   $MyBody += @{ initiatorsToCreate = $initiatorsToCreate  }  }
-        return (Invoke-DSCCRestMethod -uri $MyUri -body ( $MyBody | convertto-json) -Method 'PUT' -WhatIfBoolean $WhatIf )
+    process {
+        $MyAdd = 'host-initiators/' + $hostID
+        $MyBody += @{} 
+        if ($name) { $MyBody += @{ name = $name } }
+        if ($updatedInitiators) { $MyBody += @{ updatedInitiators = $updatedInitiators } }
+        if ($initiatorsToCreate) { $MyBody += @{ initiatorsToCreate = $initiatorsToCreate } }
+        return (Invoke-DSCCRestMethod -uri $MyUri -body ( $MyBody | ConvertTo-Json) -Method 'PUT' -WhatIfBoolean $WhatIf )
     }       
 } 

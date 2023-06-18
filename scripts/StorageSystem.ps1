@@ -61,7 +61,7 @@ function Get-DsccStorageSystem {
     begin {
         Write-Verbose 'Executing Get-DsccStorageSystem'
         if ($PSBoundParameters.ContainsKey('SystemName')) {
-            $SystemId = Get-DsccSystemIdFromName -SystemName $SystemName
+            $SystemId = Resolve-DsccSystemId -SystemName $SystemName
         }
     }
     process {
@@ -80,7 +80,7 @@ function Get-DsccStorageSystem {
                 $Response = $Response | Where-Object id -In $SystemId
             }
             $Returndata = Invoke-RepackageObjectWithType -RawObject $Response -ObjectName 'StorageSystem.Combined'
-            $SystemCollection += $Returndata    
+            $SystemCollection += $Returndata
         }
         Write-Output $SystemCollection
     } #end process
@@ -88,22 +88,23 @@ function Get-DsccStorageSystem {
     end {
         # If no parameters are specified, take the opportunity to update the Global variable 
         # Note: -Verbose does not affect this, if specified.
-        foreach ($ExcludeParam in $('SystemId', 'DeviceType', 'WhatIf')) {
+        foreach ($ExcludeParam in $('SystemId', 'SystemName', 'DeviceType', 'WhatIf')) {
             if ($ExcludeParam -in $PSBoundParameters.Keys) {
-                Write-Output 'Global Variable $DsccStorageSystem not updated'
+                Write-Verbose 'Global Variable $DsccStorageSystem not updated'
                 return
             }
         }
-        $GlobalSystem = @{}
+        $GlobalSystem = @()
+        # Using the same janky method as the formatting xml to "merge" the model value (device types have different json attributes)
         foreach ($ThisSystem in $SystemCollection) {
-            $GlobalSystem += @{
+            $GlobalSystem += [pscustomobject]@{
                 Name       = $ThisSystem.Name
                 Id         = $ThisSystem.Id
                 DeviceType = ([regex]::Matches($ThisSystem.resourceUri, 'device-type\d')).Value
-                Model      = $ThisSystem.Model
+                Model      = $ThisSystem.devicetype.default + $ThisSystem.arrays.items.extended_model
             }
         }
-        $Global:DsccStorageSystem = [pscustomobject]$GlobalSystem
+        $Global:DsccStorageSystem = $GlobalSystem
         Write-Verbose 'Global Variable $DsccStorageSystem updated'
     }
 } #end Get-DsccStorageSystem

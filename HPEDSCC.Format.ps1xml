@@ -10,25 +10,25 @@
                 <AutoSize />
                 <TableHeaders>
                     <TableColumnHeader>
-                        <Label>name</Label>
+                        <Label>Name</Label>
                     </TableColumnHeader>
                     <TableColumnHeader>
-                        <Label>id</Label>
+                        <Label>Id</Label>
                     </TableColumnHeader>
                     <TableColumnHeader>
-                        <Label>type</Label>
+                        <Label>Type</Label>
                     </TableColumnHeader>
                     <TableColumnHeader>
-                        <Label>model</Label>
+                        <Label>Model</Label>
                     </TableColumnHeader>
                     <TableColumnHeader>
-                        <Label>timezone</Label>
+                        <Label>Timezone</Label>
                     </TableColumnHeader>
                     <TableColumnHeader>
-                        <Label>state</Label>
+                        <Label>State</Label>
                     </TableColumnHeader>
                     <TableColumnHeader>
-                        <Label>version</Label>
+                        <Label>Version</Label>
                     </TableColumnHeader>
                 </TableHeaders>
                 <TableRowEntries>
@@ -45,16 +45,16 @@
                                 <PropertyName>type</PropertyName>
                             </TableColumnItem>
                             <TableColumnItem>
-                                <Scriptblock>($_.devicetype).default + (($_.arrays).items).extended_model</Scriptblock>
+                                <Scriptblock>$_.devicetype.default + $_.arrays.items.extended_model</Scriptblock>
                             </TableColumnItem>
                             <TableColumnItem>
                                 <PropertyName>timezone</PropertyName>
                             </TableColumnItem>
                             <TableColumnItem>
-                                <PropertyName>overallState</PropertyName>
+                                <Scriptblock>$_.overallState + $_.arrays.items.status</Scriptblock>
                             </TableColumnItem>
                             <TableColumnItem>
-                                <Scriptblock>($_.version).full + $_.version_current</Scriptblock>
+                                <Scriptblock>$_.version.full + $_.version_current</Scriptblock>
                             </TableColumnItem>
                         </TableColumnItems>
                     </TableRowEntry>
@@ -364,16 +364,16 @@
                 <AutoSize />
                 <TableHeaders>
                     <TableColumnHeader>
-                        <Label>Volume Name</Label>
+                        <Label>VolumeName</Label>
                     </TableColumnHeader>
                     <TableColumnHeader>
-                        <Label>id</Label>
+                        <Label>Id</Label>
                     </TableColumnHeader>
                     <TableColumnHeader>
-                        <Label>systemId</Label>
+                        <Label>SystemId</Label>
                     </TableColumnHeader>
                     <TableColumnHeader>
-                        <Label>type</Label>
+                        <Label>Type</Label>
                     </TableColumnHeader>
                     <TableColumnHeader>
                         <Label>InitiatorGroupName</Label>

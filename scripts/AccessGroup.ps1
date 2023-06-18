@@ -1,93 +1,131 @@
-function Get-DSCCAccessControlRecord
-{
 <#
 .SYNOPSIS
-    Returns the HPE DSSC Access Group Collection     
+    Returns access control records for storage systems accessible to an instance of Data Storage Cloud Console (DSCC).
 .DESCRIPTION
-    Returns the HPE Data Services Cloud Console Data Operations Manager Access Groups Collections.
+    Returns access control records for storage systems accessible to an instance of Data Storage Cloud Console (DSCC).
+    You must be logged in with valid credentials to a HPE GreenLake account.
 .PARAMETER SystemID
-    If a single System ID is specified the output will be limited to that single set of records. If no System ID is 
-    given, the command will be run against all Storage Systems Ids
+    Accepts one or more System IDs if specified, or shows disks from all storage systems accessible to this 
+    HPE GreenLake account.
+.PARAMETER SystemName
+    Accepts one or more System names if specified, or shows disks from all storage systems accessible to this 
+    HPE GreenLake account.
 .PARAMETER VolumeId 
-    With device-type1 devices you must specify the volumeID that you want access control records for, if left unset, it will 
-    return the access control records for all volumes.
-.PARAMETER WhatIf
-    The WhatIf can be either $true or $false and will show you the RAW RestAPI call that would be made to DSCC instead of actually 
-    sending the request. This option is very helpful when trying to understand the inner workings of the native RestAPI calls that DSCC uses.
-.LINK
-    The API call for this operation is file:///api/v1/storage-systems/{systemid}/device-type1/access-control-records
+    Accepts one or more Volume IDs.
+.PARAMETER VolumeName
+    Accepts one or more Volume names.
+.EXAMPLE
+    PS:> Get-DsccAccessControlRecord -SystemId 2M234353456TZ -VolumeId 4d3f2a56e8cfc0bbd58c6654c88710c6
+
+    Displays the access control records for the specified volume(s) on the specified storage system(s).
+.EXAMPLE
+    PS:> Get-DsccAccessControlRecord -SystemId 2M234353456TZ -VolumeName PRODVOL001,PRODVOL002
+
+    Displays the access control records for the specified volume(s) on the specified storage system(s).
 .EXAMPLE
     PS:> Get-DSCCAccessControlRecord
-    
-    WARNING: The Call to SystemID MXN5442108 returned no Access ControlRecord Records.
 
-    Volume Name       id                                         systemId   'type'                InitiatorGroupName
-    -----------       --                                         --------   ------                ------------------
-    jpnvol04.1        05337c8f5eb8b41d9bd6237a0cd2f02d           MXN5442108 vlun                  jpnhost04
-    jpnvol04.1        4d45e53862f8cb41b2e89171ffa1b195           MXN5442108 vlun                  jpnhostgroup04
-    fleet-test-volume 21d4e8b481380388392db7617531af56           MXN5442108 vlun                  fleet-test-host
-    jpnvol04.0        7cf3ebd3b23670a3fcf521c373b81905           MXN5442108 vlun                  jpnhost04
-    jpnvol04.0        77bb708bb9b176670a8f46e8b5ea1384           MXN5442108 vlun                  jpnhostgroup04
-    test-now          0d3a78e8778c204dc2000000000000000000000029            access-control-record jpnhost04
-#>   
-[CmdletBinding()]
-param   (  [Parameter(ValueFromPipeLineByPropertyName=$true)]   [Alias('id')]   [string]    $SystemId,  
-                                                                                [string]    $VolumeId,  
-                                                                                [boolean]   $WhatIf=$false
-        )
-process
-{   if ( -not $PSBoundParameters.ContainsKey('SystemId' ) )
-            {   write-verbose "No SystemID Given, running all SystemIDs"
-                $ReturnCol=@()
-                foreach( $Sys in Get-DSCCStorageSystem )
-                    {   write-verbose "Walking Through Multiple Systems"
-                        If ( ($Sys).Id )
-                            {   write-verbose "Found a system with a System.id"
-                                $ReturnCol += Get-DSCCAccessControlRecord -SystemId ($Sys).Id -WhatIf $WhatIf
-                            }
-                    }
-                write-verbose "Returning the Multiple System Id Access Controll Groups."
-                if ($ReturnCol -ne @() )
-                    {   return $ReturnCol
-                    }
+    Displays the access control records for all volumes on every storage system accessible to this HPE GreenLake account.
+    This command will take a long time to complete. Consider refining the command to filter on storage system and volume.
+.EXAMPLE
+    PS:> Get-DsccAccessControlRecord -SystemId 2M234353456TZ,CZ10495643Z
+
+    Displays the access control records for all volumes on each specified storage systems. This command with work, but
+    will take a long time to complete. 
+.EXAMPLE
+    PS:> Get-DSCCAccessControlRecord -VolumeId 9cbb15cb8a45def4d98ca0ba09a1b137,1f1f27f95289872fea4cf2e9e5ef6421
+
+    Displays the access control records for the specified volume(s). This command will work, but is inefficiently checking
+    every storage system for the specified volume(s). If known, specify the SystemId or SystemName parameters.
+.INPUTS
+    DSCC.StorageSystem.Combined.Typename
+    String
+.OUTPUTS
+    DSCC.AccessControlRecord.Typename
+.LINK
+    https://github.com/HewlettPackard/HPEDSCC-PowerShell-Toolkit
+.NOTES
+    For device-type1, you cannot filter on "id" using V1 of the storage API, as it appears to change each time you 
+    make a call. The Volume Id is not available in the response but volume name is present. 
+#>
+function Get-DSCCAccessControlRecord { 
+    [CmdletBinding(SupportsShouldProcess, DefaultParameterSetName = 'BySystemId')]
+    param (
+        # These Paremeter Sets allow optional specification of either SystemId or SystemName along with 
+        # optionally either VolumeId or VolumeName. VolumeId by itself works (as its part of default Parameter Set)
+        # However, VolumeName by itself fails - not enough information to work out Parameter Set, so SystemId or 
+        # SystemName must be specified.
+        [Parameter(ValueFromPipeLineByPropertyName, ParameterSetName = 'BySystemId')]
+        [Parameter(ValueFromPipeLineByPropertyName, ParameterSetName = 'BySystemIdAndVolumeName')]
+        [alias('id')]
+        [string[]]$SystemId = (($DsccStorageSystem).Id),
+
+        [Parameter(ParameterSetName = 'BySystemName')]
+        [Parameter(ParameterSetName = 'BySystemNameAndVolumeId')]
+        [alias('name')]
+        [string[]]$SystemName,
+
+        [Parameter(ParameterSetName = 'BySystemId')]
+        [Parameter(ParameterSetName = 'BySystemNameAndVolumeId')]
+        [string[]]$VolumeId,
+
+        [Parameter(ParameterSetName = 'BySystemName')]
+        [Parameter(ParameterSetName = 'BySystemIdAndVolumeName')]
+        [string[]]$VolumeName
+    )
+
+    begin {
+        Write-Verbose 'Executing Get-DsccAccessControlRecord'
+        if ($PSBoundParameters.ContainsKey('SystemName')) {
+            $SystemId = Resolve-DsccSystemId -SystemName $SystemName
+        }
+    }
+    process {
+        foreach ($ThisId in $SystemId) {
+            $DeviceType = ($DsccStorageSystem | Where-Object Id -EQ $ThisId).DeviceType
+            if (-not $DeviceType) {
+                return
             }
-        else 
-            {   $DeviceType = ( Find-DSCCDeviceTypeFromStorageSystemID -SystemId $SystemId )
-                switch ( $devicetype )
-                    {   'device-type1'  {   if ( $VolumeId )
-                                                    {   $VolObj = Get-DSCCVolume -systemid $Systemid -volumeid $VolumeId
-                                                    }
-                                                else
-                                                    {   write-verbose "No Volume was given, so checking all Volumes on this System"
-                                                        $VolObj = Get-DSCCVolume -systemId $SystemId
-                                                    }
-                                            $SysColOnly = @()
-                                            foreach ($MyVol in $VolObj)
-                                                {   $MyAdd = 'storage-systems/' + $DeviceType + '/' + $SystemId + '/volumes/' + ($MyVol).id + '/vluns'
-                                                    $NewItem = invoke-DSCCrestmethod -uriAdd $MyAdd -method Get -whatifBoolean $WhatIf
-                                                    if ( $NewItem )
-                                                        {   $SysColOnly += $NewItem 
-                                                        }                                                        
-                                                } 
-                                            if ( $SysColOnly )
-                                                    {   return ( Invoke-RepackageObjectWithType -RawObject $SysColOnly -ObjectName "AccessControlRecord" -whatif $WhatIf )
-                                                    }
-                                                else 
-                                                    {   Return 
-                                                    } 
-                                        }
-                        'device-type2'  {   $MyAdd = 'storage-systems/' + $DeviceType + '/' + $SystemId + '/access-control-records'
-                                            $SysColOnly = invoke-Dsccrestmethod -uriAdd $MyAdd -method Get -whatifBoolean $WhatIf
-                                            return ( Invoke-RepackageObjectWithType -RawObject $SysColOnly -ObjectName "AccessControlRecord" -whatif $Whatif )
-                                        }
-                    }     
-            }  
-    return     
-}  
-} 
-function Remove-DSCCAccessControlRecord
-{
-<#
+            elseif ($DeviceType -eq 'device-type1') {
+                # The API is really slow for so filter before calling to minimise the number of calls to the API
+                # Also, the json object returned does not have a volume ID in it so we must filter before. Volume 
+                # name is there as vol_name, but we rename it to VolumeName for consistency across device types.
+                # Note also that the "access-control-record" ID's change with every call (personally, I think this is 
+                # busted and should be fixed).
+                if ($PSBoundParameters.ContainsKey('VolumeId')) {
+                    $AllVolumeId = $VolumeId
+                }
+                elseif ($PSBoundParameters.ContainsKey('VolumeName')) {
+                    $AllVolumeId = (Get-DSCCVolume -SystemId $ThisId -VolumeName $VolumeName).Id
+                }
+                else {
+                    # Default is all volumes for this storage system.
+                    $AllVolumeId = (Get-DSCCVolume -SystemId $ThisId).Id
+                }
+                foreach ($ThisVolumeId in $AllVolumeId) {
+                    $UriAdd = "storage-systems/$DeviceType/$ThisId/volumes/$ThisVolumeId/vluns"
+                    $Response = Invoke-DsccRestMethod -UriAdd $UriAdd -Method Get -WhatIf:$WhatIfPreference
+                    Invoke-RepackageObjectWithType -RawObject $Response -ObjectName 'AccessControlRecord'
+                }
+            }
+            elseif ($DeviceType -eq 'device-type2') {
+                $UriAdd = "storage-systems/$DeviceType/$ThisId/access-control-records"
+                $Response = Invoke-DsccRestMethod -UriAdd $UriAdd -Method Get -WhatIf:$WhatIfPreference
+                if ($PSBoundParameters.ContainsKey('VolumeId') -or $PSBoundParameters.ContainsKey('VolumeId')) {
+                    $Response = $Response | Where-Object id -In $AllVolumeId
+                }
+                Invoke-RepackageObjectWithType -RawObject $Response -ObjectName 'AccessControlRecord'
+            }
+            else {
+                # Additional device types are coming
+                Write-Error "Device type of $DeviceType (system $ThisId) is not currently supported"
+            }
+        } #end foreach
+    } # end process
+} # end Get-DsccAccessControlRecord
+
+function Remove-DSCCAccessControlRecord {
+    <#
 .SYNOPSIS
     Removes a HPE DSSC Access Group Record or vLUN mapping 
 .DESCRIPTION
@@ -110,41 +148,42 @@ function Remove-DSCCAccessControlRecord
     The WhatIf directive will show you the RAW RestAPI call that would be made to DSCC instead of actually sending the request.
     This option is very helpful when trying to understand the inner workings of the native RestAPI calls that DSCC uses.
 #>    
-[CmdletBinding()]
-param   (   [Parameter(ParameterSetName=('type1'),ValueFromPipeLineByPropertyName=$true,Mandatory=$true )]
-            [Parameter(ParameterSetName=('type2'),ValueFromPipeLineByPropertyName=$true,Mandatory=$true )]
-                                                        [Alias('id')]   [string]    $SystemId,  
-            [Parameter(ParameterSetName=('type1'))]                     [switch]    $DeviceType1,
-            [Parameter(ParameterSetName=('type2'))]                     [switch]    $DeviceType2,
+    [CmdletBinding()]
+    param   (   [Parameter(ParameterSetName = ('type1'), ValueFromPipeLineByPropertyName = $true, Mandatory = $true )]
+        [Parameter(ParameterSetName = ('type2'), ValueFromPipeLineByPropertyName = $true, Mandatory = $true )]
+        [Alias('id')]   [string]    $SystemId,  
+        [Parameter(ParameterSetName = ('type1'))]                     [switch]    $DeviceType1,
+        [Parameter(ParameterSetName = ('type2'))]                     [switch]    $DeviceType2,
                                                                         
-            [Parameter(ParameterSetName=('type1'),Mandatory=$true )]    [string]    $volumeId,      
-            [Parameter(ParameterSetName=('type1'),Mandatory=$true )]    [string]    $vLunId,      
-            [Parameter(ParameterSetName=('type2'),Mandatory=$true )]    [string]    $AccessControlRecordId,      
-                                                                        [switch]    $WhatIf
-        )
-process
-    {   Invoke-DSCCAutoReconnect
+        [Parameter(ParameterSetName = ('type1'), Mandatory = $true )]    [string]    $volumeId,      
+        [Parameter(ParameterSetName = ('type1'), Mandatory = $true )]    [string]    $vLunId,      
+        [Parameter(ParameterSetName = ('type2'), Mandatory = $true )]    [string]    $AccessControlRecordId,      
+        [switch]    $WhatIf
+    )
+    process {
+        Invoke-DSCCAutoReconnect
         $DeviceType = ( Find-DSCCDeviceTypeFromStorageSystemID -SystemId $SystemId )
-        switch ( $devicetype )
-            {   'device-type1'  {   $MyAdd = 'storage-systems/' + $DeviceType + '/' + $SystemId + '/volumes/' + $VolumeId + '/vluns/' + $vLunId
-                                    if ( $DeviceType2 ) 
-                                        {   write-error "The Wrong Device Type was specified"
-                                            Return
-                                        }
-                                }
-                'device-type2'  {   $MyAdd = 'storage-systems/' + $DeviceType + '/' + $SystemId + '/access-control-records/' + $AccessControlRecordId
-                                    if ( $DeviceType1 )
-                                        {   write-error "The Wrong Device Type was specified"
-                                            Return
-                                        }
-                                }
+        switch ( $devicetype ) {
+            'device-type1' {
+                $MyAdd = 'storage-systems/' + $DeviceType + '/' + $SystemId + '/volumes/' + $VolumeId + '/vluns/' + $vLunId
+                if ( $DeviceType2 ) {
+                    Write-Error 'The Wrong Device Type was specified'
+                    Return
+                }
             }
+            'device-type2' {
+                $MyAdd = 'storage-systems/' + $DeviceType + '/' + $SystemId + '/access-control-records/' + $AccessControlRecordId
+                if ( $DeviceType1 ) {
+                    Write-Error 'The Wrong Device Type was specified'
+                    Return
+                }
+            }
+        }
         return Invoke-DSCCRestMethod -uriAdd $MyAdd -Method Delete -WhatIfBoolean $WhatIf
     }       
 }   
-Function New-DSCCAccessControlRecord
-{
-<#
+Function New-DSCCAccessControlRecord {
+    <#
 .SYNOPSIS
     Creates a HPE DSSC Access Group Record or LUN Mapping Record.
 .DESCRIPTION
@@ -199,66 +238,68 @@ Function New-DSCCAccessControlRecord
 .LINK
     The API call for this operation is file:///api/v1/storage-systems/{systemid}/device-type1/access-control-records
 #>   
-[CmdletBinding()]
-param(  [Parameter(ParameterSetName=('type1'),ValueFromPipeLineByPropertyName=$true,Mandatory=$true )]
-        [Parameter(ParameterSetName=('type2'),ValueFromPipeLineByPropertyName=$true,Mandatory=$true )]
-                                                            [Alias('id')]            [string]    $SystemId, 
-        [Parameter(ParameterSetName=('type1'),mandatory=$true)]  
-        [Parameter(ParameterSetName=('type2'))]             [Alias('VolumeId')]      [string]    $vol_id,
-        [Parameter(ParameterSetName=('type1'))]                                      [switch]    $DeviceType1,
-        [Parameter(ParameterSetName=('type2'))]                                      [switch]    $DeviceType2,
-        [Parameter(ParameterSetName=('type1'))]                                      [string]    $position,
-        [Parameter(ParameterSetName=('type1'))]                                      [boolean]   $autoLun,
-        [Parameter(ParameterSetName=('type1'))]                                      [int]       $maxAutoLun,
-        [Parameter(ParameterSetName=('type1'))]                                      [boolean]   $override,
-        [Parameter(ParameterSetName=('type1'))]                                      [boolean]   $noVcn,
-        [Parameter(ParameterSetName=('type1'))]
-        [ValidateSet('PRIMARY','SECONDARY','ALL')]                                   [string]   $proximity,
-        [Parameter(ParameterSetName=('type1'))]                                      [string[]]  $hostGroupIds,
+    [CmdletBinding()]
+    param(  [Parameter(ParameterSetName = ('type1'), ValueFromPipeLineByPropertyName = $true, Mandatory = $true )]
+        [Parameter(ParameterSetName = ('type2'), ValueFromPipeLineByPropertyName = $true, Mandatory = $true )]
+        [Alias('id')]            [string]    $SystemId, 
+        [Parameter(ParameterSetName = ('type1'), mandatory = $true)]  
+        [Parameter(ParameterSetName = ('type2'))]             [Alias('VolumeId')]      [string]    $vol_id,
+        [Parameter(ParameterSetName = ('type1'))]                                      [switch]    $DeviceType1,
+        [Parameter(ParameterSetName = ('type2'))]                                      [switch]    $DeviceType2,
+        [Parameter(ParameterSetName = ('type1'))]                                      [string]    $position,
+        [Parameter(ParameterSetName = ('type1'))]                                      [boolean]   $autoLun,
+        [Parameter(ParameterSetName = ('type1'))]                                      [int]       $maxAutoLun,
+        [Parameter(ParameterSetName = ('type1'))]                                      [boolean]   $override,
+        [Parameter(ParameterSetName = ('type1'))]                                      [boolean]   $noVcn,
+        [Parameter(ParameterSetName = ('type1'))]
+        [ValidateSet('PRIMARY', 'SECONDARY', 'ALL')]                                   [string]   $proximity,
+        [Parameter(ParameterSetName = ('type1'))]                                      [string[]]  $hostGroupIds,
 
-        [Parameter(ParameterSetName=('type2'))]                                      [int]       $lun,
-        [ValidateSet('volume','pe','vvol_volume','vvol_snapshot','snapshot','both') ][string]    $applyTo,
-        [Parameter(ParameterSetName=('type2'))]                                      [string]    $chapUserId,
-        [Parameter(ParameterSetName=('type2'))]                                      [string]    $initiatorGroupId,
-        [Parameter(ParameterSetName=('type2'))]                                      [string]    $pe_id,
-        [Parameter(ParameterSetName=('type2'))]                                      [string]    $pe_ids,
-        [Parameter(ParameterSetName=('type2'))]                                      [string]    $snapId,
-        [Parameter(ParameterSetName=('type1'))]
-        [Parameter(ParameterSetName=('type2'))]                                      [boolean]   $WhatIf = $false
+        [Parameter(ParameterSetName = ('type2'))]                                      [int]       $lun,
+        [ValidateSet('volume', 'pe', 'vvol_volume', 'vvol_snapshot', 'snapshot', 'both') ][string]    $applyTo,
+        [Parameter(ParameterSetName = ('type2'))]                                      [string]    $chapUserId,
+        [Parameter(ParameterSetName = ('type2'))]                                      [string]    $initiatorGroupId,
+        [Parameter(ParameterSetName = ('type2'))]                                      [string]    $pe_id,
+        [Parameter(ParameterSetName = ('type2'))]                                      [string]    $pe_ids,
+        [Parameter(ParameterSetName = ('type2'))]                                      [string]    $snapId,
+        [Parameter(ParameterSetName = ('type1'))]
+        [Parameter(ParameterSetName = ('type2'))]                                      [boolean]   $WhatIf = $false
     )
-process
-    {   $DeviceType = ( Find-DSCCDeviceTypeFromStorageSystemID -SystemId $SystemId )
-        switch ( $devicetype )
-            {   'device-type1'  {   $MyAdd = 'storage-systems/' + $DeviceType + '/' + $SystemId + '/volumes/' + $vol_id + '/export'
-                                                                $MyBody =  @{}
-                                    if ($autoLun)           {   $MyBody += @{ autoLun       = $autoLun      }  }
-                                    if ($hostGroupIds)      {   $MyBody += @{ hostGroupIds  = $hostGroupIds }  }
-                                    if ($maxAutoLun )       {   $MyBody += @{ maxAutoLun    = $maxAutoLun   }  }
-                                    if ($noVcn )            {   $MyBody += @{ noVcn         = $noVcn        }  }
-                                    if ($override )         {   $MyBody += @{ override      = $override     }  }
-                                    if ($position )         {   $MyBody += @{ position      = $position     }  }
-                                    if ($proximity )        {   $MyBody += @{ proximity     = $proximity    }  }
-                                    if ( $DeviceType2 ) 
-                                        {   write-error "The Wrong Device Type was specified"
-                                            Return
-                                        }
-                                }
-                'device-type2'  {   $MyAdd = 'storage-systems/' + $devicetype + '/' + $SystemId + '/access-control-records'
-                                                                $MyBody =  @{}
-                                    if ($applyTo)           {   $MyBody += @{ apply_to           = $applyTo          }  }
-                                    if ($chapUserId)        {   $MyBody += @{ chap_user_id       = $chapUserId       }  }
-                                    if ($initiatorGroupId ) {   $MyBody += @{ initiator_group_id = $initiatorGroupId }  }
-                                    if ($lun )              {   $MyBody += @{ lun                = $lun              }  }
-                                    if ($pe_id )            {   $MyBody += @{ pe_id              = $pe_id            }  }
-                                    if ($pe_ids )           {   $MyBody += @{ pe_ids             = $pe_ids           }  }
-                                    if ($snapId )           {   $MyBody += @{ snap_id            = $snapId           }  }
-                                    if ($vol_id )           {   $MyBody += @{ vol_id             = $vol_id           }  }
-                                    if ( $DeviceType1 ) 
-                                        {   write-error "The Wrong Device Type was specified"
-                                            Return
-                                        }
-                                }
+    process {
+        $DeviceType = ( Find-DSCCDeviceTypeFromStorageSystemID -SystemId $SystemId )
+        switch ( $devicetype ) {
+            'device-type1' {
+                $MyAdd = 'storage-systems/' + $DeviceType + '/' + $SystemId + '/volumes/' + $vol_id + '/export'
+                $MyBody = @{}
+                if ($autoLun) { $MyBody += @{ autoLun = $autoLun } }
+                if ($hostGroupIds) { $MyBody += @{ hostGroupIds = $hostGroupIds } }
+                if ($maxAutoLun ) { $MyBody += @{ maxAutoLun = $maxAutoLun } }
+                if ($noVcn ) { $MyBody += @{ noVcn = $noVcn } }
+                if ($override ) { $MyBody += @{ override = $override } }
+                if ($position ) { $MyBody += @{ position = $position } }
+                if ($proximity ) { $MyBody += @{ proximity = $proximity } }
+                if ( $DeviceType2 ) {
+                    Write-Error 'The Wrong Device Type was specified'
+                    Return
+                }
             }
+            'device-type2' {
+                $MyAdd = 'storage-systems/' + $devicetype + '/' + $SystemId + '/access-control-records'
+                $MyBody = @{}
+                if ($applyTo) { $MyBody += @{ apply_to = $applyTo } }
+                if ($chapUserId) { $MyBody += @{ chap_user_id = $chapUserId } }
+                if ($initiatorGroupId ) { $MyBody += @{ initiator_group_id = $initiatorGroupId } }
+                if ($lun ) { $MyBody += @{ lun = $lun } }
+                if ($pe_id ) { $MyBody += @{ pe_id = $pe_id } }
+                if ($pe_ids ) { $MyBody += @{ pe_ids = $pe_ids } }
+                if ($snapId ) { $MyBody += @{ snap_id = $snapId } }
+                if ($vol_id ) { $MyBody += @{ vol_id = $vol_id } }
+                if ( $DeviceType1 ) {
+                    Write-Error 'The Wrong Device Type was specified'
+                    Return
+                }
+            }
+        }
         return Invoke-DSCCRestMethod -uriadd $MyAdd -method 'POST' -body ( $MyBody | ConvertTo-Json ) -whatifBoolean $WhatIf
     }      
 } 

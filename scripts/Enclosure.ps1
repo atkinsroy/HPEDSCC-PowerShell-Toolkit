@@ -64,21 +64,23 @@ function Get-DsccEnclosure {
                 return
             }
             elseif ( $DeviceType -eq 'Device-Type1') {
-                $UriAdd = "storage-systems/$DeviceType/$SystemId/enclosures"
+                $UriAdd = "storage-systems/$DeviceType/$ThisId/enclosures"
             }
             elseif ( $DeviceType -eq 'Device-Type2' ) {
-                $UriAdd = "storage-systems/$DeviceType/$SystemId/shelves"
+                $UriAdd = "storage-systems/$DeviceType/$ThisId/shelves"
             }
             else {
                 # Additional device types are coming
                 Write-Error "Device type of $DeviceType (system $ThisId) is not currently supported"
             }
+
+            $Response = Invoke-DSCCRestMethod -UriAdd $UriAdd -Method Get -WhatIf:$WhatIfPreference
+            if ($PSBoundParameters.ContainsKey('EnclosureId')) {
+                $Response = $Response | Where-Object id -In $EnclosureId
+            }
+
+            Invoke-RepackageObjectWithType -RawObject $Response -ObjectName 'Shelf.Combined'
         }
-        $Response = Invoke-DSCCRestMethod -UriAdd $UriAdd -Method Get -WhatIf:$WhatIfPreference
-        if ($PSBoundParameters.ContainsKey('EnclosureId')) {
-            $Response = $Response | Where-Object id -In $EnclosureId
-        }
-        Invoke-RepackageObjectWithType -RawObject $Response -ObjectName 'Shelf.Combined'
     } #end process
 } # end Get-DsccEnclosure
 
